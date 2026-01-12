@@ -55,8 +55,8 @@ export const ThesisSelector: React.FC<ThesisSelectorProps> = ({
                 <div className="flex justify-between items-start mb-3">
                   <span className={`text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wide border ${
                     thesis.angle === 'Analítico' ? 'bg-blue-50 text-blue-700 border-blue-100' :
-                    thesis.angle === 'Persuasivo' ? 'bg-purple-50 text-purple-700 border-purple-100' :
-                    thesis.angle === 'Contreras' ? 'bg-red-50 text-red-700 border-red-100' :
+                    thesis.angle === 'Crítico' ? 'bg-red-50 text-red-700 border-red-100' :
+                    thesis.angle === 'Comparativo' ? 'bg-purple-50 text-purple-700 border-purple-100' :
                     'bg-emerald-50 text-emerald-700 border-emerald-100'
                   }`}>
                     {thesis.angle}

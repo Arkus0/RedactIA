@@ -1,43 +1,54 @@
 export enum Tone {
+  ACADEMIC = 'Académico (Universitario)', 
   PROFESSIONAL = 'Profesional',
-  ACADEMIC = 'Académico',
-  CREATIVE = 'Creativo',
-  CASUAL = 'Informal',
-  CONCISE = 'Conciso',
-  PERSUASIVE = 'Persuasivo'
+  PERSUASIVE = 'Persuasivo / Argumentativo',
+  CRITICAL = 'Crítico / Analítico'
 }
 
 export enum Length {
-  SHORT = 'Corto (~300 palabras)',
-  MEDIUM = 'Medio (~1000 palabras)',
-  LONG = 'Largo (~2500 palabras)',
-  EXTENSIVE = 'Extenso (~5000 palabras)'
+  SHORT = 'Breve (~500 palabras)',
+  MEDIUM = 'Estándar (~1500 palabras)',
+  LONG = 'Extenso (~3000 palabras)',
+  THESIS = 'Trabajo Final (~5000+ palabras)'
 }
 
 export enum Format {
-  ESSAY = 'Ensayo',
-  ARTICLE = 'Artículo de Blog',
-  EMAIL = 'Correo Electrónico',
-  SUMMARY = 'Resumen Ejecutivo',
-  STORY = 'Narrativa'
+  ESSAY = 'Ensayo Académico',
+  REPORT = 'Informe de Investigación',
+  LITERATURE_REVIEW = 'Revisión Bibliográfica',
+  CRITICAL_ANALYSIS = 'Análisis Crítico'
+}
+
+export enum StructureType {
+  STANDARD = 'Estándar (Intro - Desarrollo - Conclusión)',
+  THESIS_DRIVEN = 'Dinámica (Basada en la Tesis)',
+  COMPARATIVE = 'Comparativa (Bloque a Bloque)'
+}
+
+export enum ModelId {
+  GEMINI_3_FLASH = 'gemini-3-flash-preview',
+  GEMINI_3_PRO = 'gemini-3-pro-preview',
+  GEMINI_2_FLASH = 'gemini-2.0-flash'
 }
 
 export interface Thesis {
   id: string;
   title: string;
   description: string;
-  angle: 'Analítico' | 'Persuasivo' | 'Contreras' | 'Visionario';
+  angle: 'Analítico' | 'Crítico' | 'Comparativo' | 'Innovador';
 }
 
 export interface RedactionOptions {
+  model: ModelId; // Nuevo selector de modelo
   tone: Tone;
   length: Length;
   format: Format;
+  structure: StructureType;
   includeCrossReferences: boolean;
-  humanizeMode: boolean;
-  criticMode: boolean; // Activa el revisor automático (El Crítico)
+  personalStyleMode: boolean;
+  criticMode: boolean;
   userStyle?: string; 
-  styleGuide?: string; // El "ADN" o prompt maestro de estilo generado
+  styleGuide?: string;
 }
 
 export interface StyleSample {

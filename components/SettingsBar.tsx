@@ -1,142 +1,136 @@
 import React from 'react';
-import { Tone, Length, Format, RedactionOptions } from '../types';
-import { Settings2, PenTool, AlignLeft, LayoutTemplate, Link2, Wand2, UserPen, Microscope } from 'lucide-react';
+import { Tone, Length, Format, StructureType, RedactionOptions, ModelId } from '../types';
+import { Settings2, PenTool, LayoutTemplate, GraduationCap, UserPen, Microscope, AlignJustify, Cpu } from 'lucide-react';
 
 interface SettingsBarProps {
   options: RedactionOptions;
   setOptions: React.Dispatch<React.SetStateAction<RedactionOptions>>;
-  disabled: boolean;
   onOpenStyleModal: () => void;
+  disabled: boolean;
 }
 
-export const SettingsBar: React.FC<SettingsBarProps> = ({ options, setOptions, disabled, onOpenStyleModal }) => {
+export const SettingsBar: React.FC<SettingsBarProps> = ({ options, setOptions, onOpenStyleModal, disabled }) => {
+  const handleChange = (key: keyof RedactionOptions, val: any) => setOptions(p => ({...p, [key]: val}));
+
   return (
-    <div className="bg-white border-b border-gray-200 px-4 py-3 sm:px-6 sticky top-0 z-10">
-      <div className="max-w-7xl mx-auto flex flex-col xl:flex-row gap-4 xl:items-center justify-between">
+    <div className="bg-white border-b border-gray-200 px-4 py-3 sticky top-0 z-10 shadow-sm">
+      <div className="max-w-7xl mx-auto flex flex-col xl:flex-row gap-4 justify-between xl:items-center">
         
-        <div className="flex items-center gap-2 text-gray-700 font-medium shrink-0">
-          <Settings2 className="w-5 h-5 text-primary-600" />
+        <div className="flex items-center gap-2 text-gray-800 font-bold shrink-0">
+          <GraduationCap className="w-6 h-6 text-primary-600" />
           <span>Configuración</span>
         </div>
 
-        <div className="flex flex-wrap gap-3 flex-1 xl:justify-end items-center">
-          {/* Format Selection */}
-          <div className="relative group w-full sm:w-auto min-w-[140px]">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <LayoutTemplate className="h-4 w-4 text-gray-400" />
-            </div>
-            <select
-              disabled={disabled}
-              value={options.format}
-              onChange={(e) => setOptions(prev => ({ ...prev, format: e.target.value as Format }))}
-              className="block w-full pl-9 pr-8 py-2 text-sm border-gray-300 focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm rounded-lg border bg-gray-50 hover:bg-white transition-colors cursor-pointer disabled:opacity-60 appearance-none"
-            >
-              {Object.values(Format).map((format) => (
-                <option key={format} value={format}>{format}</option>
-              ))}
-            </select>
+        <div className="flex flex-wrap gap-2 items-center flex-1 xl:justify-end">
+          
+          {/* Model Selector (New) */}
+          <div className="relative min-w-[160px] w-full sm:w-auto">
+             <Cpu className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+             <select
+               disabled={disabled}
+               value={options.model}
+               onChange={(e) => handleChange('model', e.target.value)}
+               className="w-full pl-9 pr-8 py-2 text-xs font-medium border border-blue-200 rounded-lg bg-blue-50 text-blue-800 focus:ring-blue-500 focus:border-blue-500 appearance-none cursor-pointer"
+             >
+               <option value={ModelId.GEMINI_3_FLASH}>⚡ Gemini 3 Flash (Rápido)</option>
+               <option value={ModelId.GEMINI_3_PRO}>🧠 Gemini 3 Pro (Razonamiento)</option>
+               <option value={ModelId.GEMINI_2_FLASH}>⚖️ Gemini 2.0 Flash</option>
+             </select>
           </div>
 
-          {/* Tone Selection */}
-          <div className="relative w-full sm:w-auto min-w-[140px]">
-             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <PenTool className="h-4 w-4 text-gray-400" />
-            </div>
-            <select
-              disabled={disabled}
-              value={options.tone}
-              onChange={(e) => setOptions(prev => ({ ...prev, tone: e.target.value as Tone }))}
-              className="block w-full pl-9 pr-8 py-2 text-sm border-gray-300 focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm rounded-lg border bg-gray-50 hover:bg-white transition-colors cursor-pointer disabled:opacity-60 appearance-none"
-            >
-              {Object.values(Tone).map((tone) => (
-                <option key={tone} value={tone}>{tone}</option>
-              ))}
-            </select>
+          <div className="w-px h-6 bg-gray-300 mx-1 hidden xl:block"></div>
+
+          {/* Format */}
+          <div className="relative min-w-[140px] w-full sm:w-auto">
+             <LayoutTemplate className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+             <select 
+                disabled={disabled}
+                value={options.format}
+                onChange={(e) => handleChange('format', e.target.value)}
+                className="w-full pl-9 pr-8 py-2 text-xs border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500 bg-gray-50 appearance-none"
+             >
+                {Object.values(Format).map(o => <option key={o} value={o}>{o}</option>)}
+             </select>
           </div>
 
-          {/* Length Selection */}
-          <div className="relative w-full sm:w-auto min-w-[140px]">
-             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <AlignLeft className="h-4 w-4 text-gray-400" />
-            </div>
-            <select
-              disabled={disabled}
-              value={options.length}
-              onChange={(e) => setOptions(prev => ({ ...prev, length: e.target.value as Length }))}
-              className="block w-full pl-9 pr-8 py-2 text-sm border-gray-300 focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm rounded-lg border bg-gray-50 hover:bg-white transition-colors cursor-pointer disabled:opacity-60 appearance-none"
-            >
-              {Object.values(Length).map((length) => (
-                <option key={length} value={length}>{length}</option>
-              ))}
-            </select>
+          {/* Tone */}
+          <div className="relative min-w-[140px] w-full sm:w-auto">
+             <PenTool className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+             <select 
+                disabled={disabled}
+                value={options.tone}
+                onChange={(e) => handleChange('tone', e.target.value)}
+                className="w-full pl-9 pr-8 py-2 text-xs border border-gray-300 rounded-lg bg-gray-50 appearance-none"
+             >
+                {Object.values(Tone).map(o => <option key={o} value={o}>{o}</option>)}
+             </select>
           </div>
 
-          <div className="h-6 w-px bg-gray-300 hidden sm:block mx-1"></div>
+          {/* Length */}
+          <div className="relative min-w-[140px] w-full sm:w-auto">
+             <AlignJustify className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+             <select 
+                disabled={disabled}
+                value={options.length}
+                onChange={(e) => handleChange('length', e.target.value)}
+                className="w-full pl-9 pr-8 py-2 text-xs border border-gray-300 rounded-lg bg-gray-50 appearance-none"
+             >
+                {Object.values(Length).map(o => <option key={o} value={o}>{o}</option>)}
+             </select>
+          </div>
 
-          {/* Buttons Group */}
-          <div className="flex items-center gap-2 w-full sm:w-auto overflow-x-auto sm:overflow-visible pb-1 sm:pb-0">
-            {/* Cross References */}
+          {/* Structure Selector */}
+          <div className="relative min-w-[140px] w-full sm:w-auto">
+             <div className="absolute left-3 top-2.5 h-4 w-4 text-gray-400 pointer-events-none font-mono font-bold">≡</div>
+             <select
+               disabled={disabled}
+               value={options.structure}
+               onChange={(e) => handleChange('structure', e.target.value)}
+               className="w-full pl-9 pr-8 py-2 text-xs border border-gray-300 rounded-lg bg-gray-50 appearance-none"
+             >
+               {Object.values(StructureType).map(s => <option key={s} value={s}>{s}</option>)}
+             </select>
+          </div>
+
+          <div className="w-px h-6 bg-gray-300 mx-1 hidden xl:block"></div>
+
+          {/* Tutor Virtual */}
+          <button
+            disabled={disabled}
+            onClick={() => handleChange('criticMode', !options.criticMode)}
+            className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border transition-all whitespace-nowrap ${
+              options.criticMode ? 'bg-orange-50 border-orange-300 text-orange-700' : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
+            }`}
+            title="Activa el Tutor Virtual que corrige y genera un informe final"
+          >
+            <Microscope className="w-3.5 h-3.5" /> Tutor
+          </button>
+
+          {/* Estilo Personal */}
+          <div className="flex gap-0 rounded-lg shadow-sm">
             <button
-                disabled={disabled}
-                onClick={() => setOptions(prev => ({ ...prev, includeCrossReferences: !prev.includeCrossReferences }))}
-                className={`flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-lg border transition-all whitespace-nowrap ${
-                options.includeCrossReferences 
-                    ? 'bg-blue-50 border-blue-300 text-blue-700 shadow-sm' 
-                    : 'bg-gray-50 border-gray-300 text-gray-600 hover:bg-white'
-                } disabled:opacity-60`}
-                title="Generar referencias internas entre secciones"
+              disabled={disabled}
+              onClick={() => handleChange('personalStyleMode', !options.personalStyleMode)}
+              className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-l-lg border transition-all whitespace-nowrap ${
+                options.personalStyleMode ? 'bg-purple-50 border-purple-300 text-purple-700 border-r-0' : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50 border-r-0'
+              }`}
             >
-                <Link2 className="w-3.5 h-3.5" />
-                Citas
+              <UserPen className="w-3.5 h-3.5" /> Estilo
             </button>
-
-             {/* Critic Mode (New) */}
-             <button
+            <button 
+                onClick={onOpenStyleModal} 
                 disabled={disabled}
-                onClick={() => setOptions(prev => ({ ...prev, criticMode: !prev.criticMode }))}
-                className={`flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-lg border transition-all whitespace-nowrap ${
-                options.criticMode 
-                    ? 'bg-orange-50 border-orange-300 text-orange-700 shadow-sm ring-1 ring-orange-200' 
-                    : 'bg-gray-50 border-gray-300 text-gray-600 hover:bg-white'
-                } disabled:opacity-60`}
-                title="El Crítico: Realiza una segunda pasada para corregir lógica y argumentos"
+                className={`px-2 border border-l-0 rounded-r-lg transition-colors ${
+                    options.personalStyleMode 
+                        ? 'bg-purple-50 border-purple-300 text-purple-600 hover:bg-purple-100' 
+                        : 'bg-white border-gray-300 text-gray-400 hover:text-purple-600 hover:bg-gray-50'
+                }`}
+                title="Configurar Bóveda de Estilo"
             >
-                <Microscope className="w-3.5 h-3.5" />
-                Crítico
+                 ⚙️
             </button>
-
-            {/* Humanize Group */}
-            <div className="flex items-center gap-0 bg-gray-50 p-0.5 rounded-lg border border-gray-300 whitespace-nowrap">
-                <button
-                disabled={disabled}
-                onClick={() => setOptions(prev => ({ ...prev, humanizeMode: !prev.humanizeMode }))}
-                className={`flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
-                    options.humanizeMode 
-                    ? 'bg-purple-100 text-purple-800 shadow-sm' 
-                    : 'text-gray-600 hover:bg-gray-200'
-                } disabled:opacity-60`}
-                title="Modo Anti-IA: Reescribe el texto para evitar detección"
-                >
-                <Wand2 className="w-3.5 h-3.5" />
-                Humanizar
-                </button>
-                
-                {options.humanizeMode && (
-                <button
-                    disabled={disabled}
-                    onClick={onOpenStyleModal}
-                    className={`p-1.5 rounded-md transition-colors ${
-                        options.userStyle || options.styleGuide
-                        ? 'bg-purple-600 text-white shadow-sm' 
-                        : 'text-gray-500 hover:bg-gray-200 hover:text-purple-600'
-                    }`}
-                    title="Configurar mi estilo de escritura (Clonación)"
-                >
-                    <UserPen className="w-3.5 h-3.5" />
-                </button>
-                )}
-            </div>
           </div>
+
         </div>
       </div>
     </div>

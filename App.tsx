@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { generateRedaction, generateOptimizedPrompt, generateTheses } from './services/geminiService';
+import { generateRedaction, generateTheses, generateOptimizedPrompt, buildPortablePrompt } from './services/geminiService';
 import { extractTextFromPdf } from './services/pdfService';
-import { db, saveHistory, getHistory, deleteHistoryItem, clearHistory } from './services/db';
-import { Tone, Length, Format, RedactionOptions, HistoryItem, Source, Thesis } from './types';
+import { saveHistory, getHistory, deleteHistoryItem } from './services/db';
+import { Tone, Length, Format, StructureType, RedactionOptions, HistoryItem, Source, Thesis, ModelId } from './types';
 import { SettingsBar } from './components/SettingsBar';
 import { HistorySidebar } from './components/HistorySidebar';
 import { StyleManager } from './components/StyleManager';
-import { ThesisSelector } from './components/ThesisSelector'; // Nuevo
+import { ThesisSelector } from './components/ThesisSelector';
 import ReactMarkdown from 'react-markdown';
 import { 
   Sparkles, 
@@ -25,7 +25,9 @@ import {
   Paperclip,
   Plus,
   X,
-  StickyNote
+  StickyNote,
+  Wand2,
+  Share2
 } from 'lucide-react';
 
 function App() {
@@ -34,13 +36,18 @@ function App() {
   const [sources, setSources] = useState<Source[]>([]);
   const [generatedText, setGeneratedText] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isOptimizingPrompt, setIsOptimizingPrompt] = useState(false);
+  
+  // Opciones por defecto para University Edition
   const [options, setOptions] = useState<RedactionOptions>({
-    tone: Tone.PROFESSIONAL,
+    model: ModelId.GEMINI_3_FLASH, // Default model
+    tone: Tone.ACADEMIC,
     length: Length.MEDIUM,
     format: Format.ESSAY,
-    includeCrossReferences: false,
-    humanizeMode: false,
-    criticMode: false // Default off
+    structure: StructureType.STANDARD,
+    includeCrossReferences: true,
+    personalStyleMode: false,
+    criticMode: false
   });
   
   const [history, setHistory] = useState<HistoryItem[]>([]);
@@ -53,7 +60,12 @@ function App() {
   const [textModalContent, setTextModalContent] = useState('');
   const [isStyleManagerOpen, setIsStyleManagerOpen] = useState(false);
   
-  // Thesis Strategy State (The Architect Flow)
+  // Portable Prompt Modal
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [exportPromptContent, setExportPromptContent] = useState('');
+  const [exportCopied, setExportCopied] = useState(false);
+  
+  // Thesis Strategy State
   const [isThesisModalOpen, setIsThesisModalOpen] = useState(false);
   const [theses, setTheses] = useState<Thesis[]>([]);
   const [isAnalyzingTheses, setIsAnalyzingTheses] = useState(false);
@@ -70,28 +82,63 @@ function App() {
     setHistory(items);
   };
 
-  // --- NUEVO FLUJO DE GENERACIÓN ---
+  // --- HANDLERS ---
   
-  // Paso 1: Botón "Redactar" presionado -> Generar Estrategias (Tesis)
+  const handleOptimizePrompt = async () => {
+    if (!userInstruction.trim() && sources.length === 0) {
+      alert("Escribe algo en la instrucción o añade fuentes primero.");
+      return;
+    }
+    
+    setIsOptimizingPrompt(true);
+    try {
+      const optimized = await generateOptimizedPrompt(sources, userInstruction || "Escribir un trabajo sobre los archivos adjuntos");
+      setUserInstruction(optimized);
+    } catch (e) {
+      alert("Error optimizando instrucción.");
+    } finally {
+      setIsOptimizingPrompt(false);
+    }
+  };
+
+  const handleExportPrompt = () => {
+     if (!userInstruction.trim() && sources.length === 0) {
+        alert("Necesitas contenido para exportar un prompt.");
+        return;
+     }
+     const prompt = buildPortablePrompt(sources, userInstruction, options);
+     setExportPromptContent(prompt);
+     setIsExportModalOpen(true);
+  };
+
+  const handleCopyExport = () => {
+     navigator.clipboard.writeText(exportPromptContent);
+     setExportCopied(true);
+     setTimeout(() => setExportCopied(false), 2000);
+  };
+
   const handleStartRedaction = async () => {
     if (!userInstruction.trim() && sources.length === 0) {
       alert("Por favor añade una instrucción o al menos una fuente.");
       return;
     }
 
+    // Si no es académico o es muy corto, saltamos la fase de tesis
+    if (options.length === Length.SHORT || options.tone !== Tone.ACADEMIC) {
+        handleFinalGenerate(null);
+        return;
+    }
+
     setIsGenerating(true);
     setIsAnalyzingTheses(true);
-    setIsThesisModalOpen(true); // Abrimos modal inmediatamente con estado de carga
+    setIsThesisModalOpen(true);
 
     try {
-      // Llamada al "Estratega"
       const generatedTheses = await generateTheses(sources, userInstruction);
-      
       if (generatedTheses && generatedTheses.length > 0) {
         setTheses(generatedTheses);
-        setIsAnalyzingTheses(false); // Deja de cargar, muestra opciones
+        setIsAnalyzingTheses(false);
       } else {
-        // Fallback: Si no hay tesis, vamos directo a escribir
         handleFinalGenerate(null);
       }
     } catch (error) {
@@ -100,24 +147,21 @@ function App() {
     }
   };
 
-  // Paso 2: Selección de Tesis (o Prompt directo) -> Generación Final
   const handleFinalGenerate = async (selectedThesis: Thesis | null) => {
-    setIsThesisModalOpen(false); // Cerramos selector
-    setIsGenerating(true);       // Mantenemos loading global
+    setIsThesisModalOpen(false);
+    setIsGenerating(true);
     setGeneratedText('');
     
     try {
-      // Llamada al pipeline principal (Borrador -> Crítico -> Humanizador)
       const finalResult = await generateRedaction(
         sources, 
         userInstruction, 
         options,
         selectedThesis,
-        (chunk) => setGeneratedText(prev => prev + chunk), // Append chunk
-        () => setGeneratedText('') // Reset text (e.g. before next phase)
+        (chunk) => setGeneratedText(prev => prev + chunk),
+        () => setGeneratedText('')
       );
       
-      // Guardar historial
       const newItem: HistoryItem = {
         id: Date.now().toString(),
         userInstruction: userInstruction,
@@ -135,17 +179,6 @@ function App() {
       setIsGenerating(false);
       setIsAnalyzingTheses(false);
     }
-  };
-
-  // Generador de Prompt (Solo genera el prompt, no el texto)
-  const handleGeneratePromptOnly = async () => {
-    if (!userInstruction.trim() && sources.length === 0) return;
-    setIsGenerating(true);
-    try {
-        const res = await generateOptimizedPrompt(sources, userInstruction, options);
-        setGeneratedText(res);
-    } catch(e) { alert("Error"); }
-    finally { setIsGenerating(false); }
   };
 
   // --- UTILIDADES DE UI ---
@@ -202,8 +235,44 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
-      {/* Modals */}
+    <div className="min-h-screen bg-gray-50 flex flex-col font-sans text-slate-800">
+      {/* Export Modal */}
+      {isExportModalOpen && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[85vh]">
+            <div className="p-4 border-b border-gray-100 flex justify-between bg-gray-50">
+              <div className="flex flex-col">
+                <h3 className="font-bold text-gray-800 flex items-center gap-2 text-lg">
+                    <Code2 className="w-5 h-5 text-indigo-600"/> Prompt Maestro (Portable)
+                </h3>
+                <p className="text-xs text-gray-500 mt-1">
+                    Copia esto en Claude 3.5, Grok 3 o ChatGPT o1 para obtener resultados idénticos.
+                </p>
+              </div>
+              <button onClick={() => setIsExportModalOpen(false)}><X className="w-5 h-5 text-gray-400"/></button>
+            </div>
+            <div className="p-0 flex-1 relative bg-slate-900">
+              <textarea 
+                readOnly
+                className="w-full h-full p-4 bg-slate-900 text-slate-300 font-mono text-xs resize-none focus:outline-none leading-relaxed" 
+                value={exportPromptContent} 
+              />
+            </div>
+            <div className="p-4 border-t border-gray-100 bg-white flex justify-end gap-2">
+              <button onClick={() => setIsExportModalOpen(false)} className="px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg">Cerrar</button>
+              <button 
+                onClick={handleCopyExport} 
+                className={`px-6 py-2 text-sm text-white rounded-lg flex items-center gap-2 transition-all ${exportCopied ? 'bg-green-600' : 'bg-indigo-600 hover:bg-indigo-700'}`}
+              >
+                {exportCopied ? <Check className="w-4 h-4"/> : <Copy className="w-4 h-4"/>}
+                {exportCopied ? 'Copiado' : 'Copiar Prompt'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Text Modal */}
       {isTextModalOpen && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
@@ -227,7 +296,7 @@ function App() {
         isOpen={isStyleManagerOpen}
         onClose={() => setIsStyleManagerOpen(false)}
         currentGuide={options.styleGuide}
-        onSaveStyle={(guide) => setOptions(prev => ({ ...prev, styleGuide: guide, humanizeMode: true }))}
+        onSaveStyle={(guide) => setOptions(prev => ({ ...prev, styleGuide: guide, personalStyleMode: true }))}
       />
 
       <ThesisSelector 
@@ -245,7 +314,9 @@ function App() {
             <button onClick={() => setIsSidebarOpen(true)} className="p-2 -ml-2 hover:bg-gray-100 rounded-lg lg:hidden"><Menu className="w-6 h-6 text-gray-600" /></button>
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 bg-gradient-to-tr from-primary-600 to-primary-400 rounded-lg flex items-center justify-center text-white shadow-lg"><PenLine className="w-5 h-5" /></div>
-              <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-600">RedactaIA</h1>
+              <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-600">
+                RedactaIA <span className="text-xs bg-primary-100 text-primary-800 px-2 py-0.5 rounded ml-1 font-medium">Uni</span>
+              </h1>
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -285,13 +356,31 @@ function App() {
           <div className="flex flex-col flex-1 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden group focus-within:ring-2 focus-within:ring-primary-100 transition-all">
             <div className="bg-gray-50 px-4 py-3 border-b border-gray-100 flex justify-between items-center">
               <label className="text-sm font-semibold text-gray-700 uppercase flex items-center gap-2"><Sparkles className="w-4 h-4 text-primary-500" /> Instrucción</label>
-              <button onClick={handleClearAll} className="text-xs flex items-center gap-1 text-gray-400 hover:text-red-500"><Eraser className="w-3.5 h-3.5" /> Limpiar</button>
+              <div className="flex gap-2">
+                  <button 
+                    onClick={handleExportPrompt}
+                    disabled={(!userInstruction && sources.length === 0)}
+                    className="text-xs flex items-center gap-1 text-gray-600 hover:text-gray-900 bg-gray-100 px-2 py-1 rounded disabled:opacity-50 hover:bg-gray-200 border border-gray-200"
+                    title="Exportar Prompt para Claude/Grok"
+                  >
+                    <Share2 className="w-3 h-3" />
+                    Exportar Prompt
+                  </button>
+                  <button 
+                    onClick={handleOptimizePrompt}
+                    disabled={isGenerating || isOptimizingPrompt || (!userInstruction && sources.length === 0)}
+                    className="text-xs flex items-center gap-1 text-purple-600 hover:text-purple-800 bg-purple-50 px-2 py-1 rounded disabled:opacity-50"
+                  >
+                    {isOptimizingPrompt ? <Loader2 className="w-3 h-3 animate-spin"/> : <Wand2 className="w-3 h-3" />}
+                    Mejorar Instrucción
+                  </button>
+                  <button onClick={handleClearAll} className="text-xs flex items-center gap-1 text-gray-400 hover:text-red-500"><Eraser className="w-3.5 h-3.5" /> Limpiar</button>
+              </div>
             </div>
             <textarea className="flex-1 w-full p-4 resize-none focus:outline-none text-gray-700 text-sm" placeholder="Describe qué quieres escribir..." value={userInstruction} onChange={(e) => setUserInstruction(e.target.value)} />
-            <div className="p-4 bg-gray-50 border-t border-gray-100 grid grid-cols-1 sm:grid-cols-2 gap-3">
-               <button onClick={handleGeneratePromptOnly} disabled={(!userInstruction && sources.length === 0) || isGenerating} className="py-2.5 px-4 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 rounded-xl shadow-sm flex items-center justify-center gap-2 text-sm font-medium"><Code2 className="w-4 h-4 text-purple-600" /> Prompt</button>
-               <button onClick={handleStartRedaction} disabled={(!userInstruction && sources.length === 0) || isGenerating} className="py-2.5 px-4 bg-primary-600 hover:bg-primary-700 text-white rounded-xl shadow-lg flex items-center justify-center gap-2 text-sm font-medium disabled:opacity-50">
-                {isGenerating ? <><Loader2 className="w-4 h-4 animate-spin" /> Procesando...</> : <><PenLine className="w-4 h-4" /> Redactar</>}
+            <div className="p-4 bg-gray-50 border-t border-gray-100 flex justify-end gap-3">
+               <button onClick={handleStartRedaction} disabled={(!userInstruction && sources.length === 0) || isGenerating} className="py-2.5 px-6 bg-primary-600 hover:bg-primary-700 text-white rounded-xl shadow-lg flex items-center justify-center gap-2 text-sm font-bold disabled:opacity-50">
+                {isGenerating ? <><Loader2 className="w-4 h-4 animate-spin" /> Procesando...</> : <><PenLine className="w-4 h-4" /> Redactar Trabajo</>}
               </button>
             </div>
           </div>
