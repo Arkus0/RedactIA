@@ -31,6 +31,8 @@ export enum ModelId {
   GEMINI_2_FLASH = 'gemini-2.0-flash'
 }
 
+export type AppMode = 'ARCHITECT' | 'HUMANIZER';
+
 export interface Thesis {
   id: string;
   title: string;
@@ -39,7 +41,7 @@ export interface Thesis {
 }
 
 export interface RedactionOptions {
-  model: ModelId; // Nuevo selector de modelo
+  model: ModelId;
   tone: Tone;
   length: Length;
   format: Format;
@@ -60,8 +62,8 @@ export interface StyleSample {
 export interface Source {
   id: string;
   name: string;
-  content: string;
-  type: 'pdf' | 'text';
+  content: string; // Base64 string for PDFs, plain text for text inputs
+  mimeType: 'application/pdf' | 'text/plain'; // Nuevo campo para diferenciar nativamente
 }
 
 export interface HistoryItem {
