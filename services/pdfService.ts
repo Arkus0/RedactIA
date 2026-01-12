@@ -19,18 +19,22 @@ export const extractTextFromPdf = async (file: File): Promise<string> => {
       
       // Iterar sobre los items de texto para reconstruir párrafos
       for (const item of textContent.items as any[]) {
+        const text = item.str;
+        // Saltar items vacíos para no romper párrafos innecesariamente
+        if (!text || text.trim().length === 0) continue;
+
         // item.transform[5] es la coordenada Y
         const currentY = item.transform[5];
         
         // Si hay un cambio significativo en Y, es una nueva línea
-        if (lastY !== null && Math.abs(currentY - lastY) > 5) {
+        if (lastY !== null && Math.abs(currentY - lastY) > 8) { // Aumentado umbral para evitar saltos en subíndices
           pageText += '\n';
-        } else if (pageText.length > 0 && !pageText.endsWith('\n')) {
-          // Si estamos en la misma línea visual, añadimos espacio
+        } else if (pageText.length > 0 && !pageText.endsWith('\n') && !pageText.endsWith(' ')) {
+          // Si estamos en la misma línea visual, añadimos espacio si no lo tiene
           pageText += ' ';
         }
         
-        pageText += item.str;
+        pageText += text;
         lastY = currentY;
       }
       

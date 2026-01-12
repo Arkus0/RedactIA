@@ -22,12 +22,28 @@ export enum Format {
   STORY = 'Narrativa'
 }
 
+export interface Thesis {
+  id: string;
+  title: string;
+  description: string;
+  angle: 'Analítico' | 'Persuasivo' | 'Contreras' | 'Visionario';
+}
+
 export interface RedactionOptions {
   tone: Tone;
   length: Length;
   format: Format;
   includeCrossReferences: boolean;
   humanizeMode: boolean;
+  criticMode: boolean; // Activa el revisor automático (El Crítico)
+  userStyle?: string; 
+  styleGuide?: string; // El "ADN" o prompt maestro de estilo generado
+}
+
+export interface StyleSample {
+  id: string;
+  content: string;
+  type: 'email' | 'essay' | 'chat' | 'other';
 }
 
 export interface Source {
