@@ -26,6 +26,8 @@ export interface RedactionOptions {
   tone: Tone;
   length: Length;
   format: Format;
+  includeCrossReferences: boolean;
+  humanizeMode: boolean;
 }
 
 export interface Source {

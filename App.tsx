@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { generateRedaction, generateOptimizedPrompt } from './services/geminiService';
 import { extractTextFromPdf } from './services/pdfService';
+import { db, saveHistory, getHistory, deleteHistoryItem, clearHistory } from './services/db';
 import { Tone, Length, Format, RedactionOptions, HistoryItem, Source } from './types';
 import { SettingsBar } from './components/SettingsBar';
 import { HistorySidebar } from './components/HistorySidebar';
@@ -25,8 +26,6 @@ import {
   StickyNote
 } from 'lucide-react';
 
-const STORAGE_KEY = 'redactaia_history';
-
 function App() {
   // State
   const [userInstruction, setUserInstruction] = useState('');
@@ -36,7 +35,9 @@ function App() {
   const [options, setOptions] = useState<RedactionOptions>({
     tone: Tone.PROFESSIONAL,
     length: Length.MEDIUM,
-    format: Format.ESSAY
+    format: Format.ESSAY,
+    includeCrossReferences: false,
+    humanizeMode: false
   });
   
   const [history, setHistory] = useState<HistoryItem[]>([]);
@@ -47,25 +48,19 @@ function App() {
   const [isTextModalOpen, setIsTextModalOpen] = useState(false);
   const [textModalTitle, setTextModalTitle] = useState('');
   const [textModalContent, setTextModalContent] = useState('');
+  const [humanizingPhase, setHumanizingPhase] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Load history on mount
+  // Load history on mount from IndexedDB
   useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      try {
-        setHistory(JSON.parse(saved));
-      } catch (e) {
-        console.error("Failed to parse history", e);
-      }
-    }
+    loadHistory();
   }, []);
 
-  // Save history on change
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(history));
-  }, [history]);
+  const loadHistory = async () => {
+    const items = await getHistory();
+    setHistory(items);
+  };
 
   const handleGenerate = async (mode: 'redaction' | 'prompt') => {
     if (!userInstruction.trim() && sources.length === 0) {
@@ -75,32 +70,43 @@ function App() {
 
     setIsGenerating(true);
     setGeneratedText('');
+    setHumanizingPhase(false);
     
     try {
-      let result = '';
+      let finalResult = '';
+      
       if (mode === 'redaction') {
-        result = await generateRedaction(sources, userInstruction, options);
+        // Callback para streaming: actualizamos el texto conforme llega
+        finalResult = await generateRedaction(
+          sources, 
+          userInstruction, 
+          options,
+          (chunk) => setGeneratedText(prev => prev + chunk), // Append chunk
+          () => setGeneratedText('') // Reset text (e.g. before humanization phase)
+        );
       } else {
-        result = await generateOptimizedPrompt(sources, userInstruction, options);
+        finalResult = await generateOptimizedPrompt(sources, userInstruction, options);
+        setGeneratedText(finalResult);
       }
       
-      setGeneratedText(result);
-      
-      // Save to history (Simplificado: no guardamos todo el contenido de las fuentes para no saturar localStorage)
+      // Save to history (IndexedDB handles larger size better)
       const newItem: HistoryItem = {
         id: Date.now().toString(),
         userInstruction: userInstruction,
-        generatedText: result,
+        generatedText: finalResult,
         options: { ...options },
         timestamp: Date.now()
       };
       
-      setHistory(prev => [newItem, ...prev]);
+      await saveHistory(newItem);
+      await loadHistory(); // Refresh list
+
     } catch (error) {
       console.error(error);
       alert("Hubo un error al generar. Revisa la consola o intenta más tarde.");
     } finally {
       setIsGenerating(false);
+      setHumanizingPhase(false);
     }
   };
 
@@ -180,12 +186,12 @@ function App() {
     setGeneratedText(item.generatedText);
     setOptions(item.options);
     setIsSidebarOpen(false);
-    // Note: We cannot restore PDF sources from history as we don't save their full content to avoid localStorage limits
   };
 
-  const handleDeleteHistory = (id: string, e: React.MouseEvent) => {
+  const handleDeleteHistory = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    setHistory(prev => prev.filter(item => item.id !== id));
+    await deleteHistoryItem(id);
+    await loadHistory();
   };
 
   return (
@@ -406,7 +412,7 @@ function App() {
                 {isGenerating ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    Procesando...
+                    {options.humanizeMode ? 'Redactando & Humanizando...' : 'Escribiendo...'}
                   </>
                 ) : (
                   <>
@@ -422,8 +428,13 @@ function App() {
         {/* Right Column: Output */}
         <div className="flex flex-col h-full bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden relative min-h-[500px]">
           <div className="bg-gray-50 px-4 py-3 border-b border-gray-100 flex justify-between items-center">
-            <label className="text-sm font-semibold text-gray-700 uppercase tracking-wider">
+            <label className="text-sm font-semibold text-gray-700 uppercase tracking-wider flex items-center gap-2">
               Resultado
+              {isGenerating && (
+                <span className="text-xs font-normal normal-case text-primary-600 bg-primary-50 px-2 py-0.5 rounded-full animate-pulse">
+                  Streaming...
+                </span>
+              )}
             </label>
             {generatedText && (
               <button 
@@ -454,20 +465,16 @@ function App() {
               </div>
             )}
             
-            {isGenerating && (
+            {/* Si no hay texto pero estamos generando, mostramos loading skeleton inicial hasta que llegue el primer chunk */}
+            {isGenerating && !generatedText && (
               <div className="space-y-4 animate-pulse">
                 <div className="h-4 bg-gray-200 rounded w-3/4"></div>
                 <div className="h-4 bg-gray-200 rounded w-full"></div>
                 <div className="h-4 bg-gray-200 rounded w-5/6"></div>
-                <div className="space-y-2 mt-6">
-                   <div className="h-4 bg-gray-200 rounded w-full"></div>
-                   <div className="h-4 bg-gray-200 rounded w-full"></div>
-                   <div className="h-4 bg-gray-200 rounded w-4/5"></div>
-                </div>
               </div>
             )}
 
-            {generatedText && !isGenerating && (
+            {(generatedText) && (
               <div className="generated-content prose prose-base lg:prose-lg prose-blue max-w-none">
                 <ReactMarkdown>{generatedText}</ReactMarkdown>
               </div>

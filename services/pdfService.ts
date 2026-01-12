@@ -13,9 +13,26 @@ export const extractTextFromPdf = async (file: File): Promise<string> => {
     for (let i = 1; i <= pdf.numPages; i++) {
       const page = await pdf.getPage(i);
       const textContent = await page.getTextContent();
-      const pageText = textContent.items
-        .map((item: any) => item.str)
-        .join(' ');
+      
+      let pageText = '';
+      let lastY = null;
+      
+      // Iterar sobre los items de texto para reconstruir párrafos
+      for (const item of textContent.items as any[]) {
+        // item.transform[5] es la coordenada Y
+        const currentY = item.transform[5];
+        
+        // Si hay un cambio significativo en Y, es una nueva línea
+        if (lastY !== null && Math.abs(currentY - lastY) > 5) {
+          pageText += '\n';
+        } else if (pageText.length > 0 && !pageText.endsWith('\n')) {
+          // Si estamos en la misma línea visual, añadimos espacio
+          pageText += ' ';
+        }
+        
+        pageText += item.str;
+        lastY = currentY;
+      }
       
       fullText += `--- Página ${i} ---\n${pageText}\n\n`;
     }

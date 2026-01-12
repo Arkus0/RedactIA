@@ -1,12 +1,9 @@
-import { GoogleGenAI } from "@google/genai";
-import { RedactionOptions, Length, Source } from '../types';
+import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
+import { RedactionOptions, Length, Source, Tone } from '../types';
 
 const getClient = () => {
-  const apiKey = process.env.API_KEY;
-  if (!apiKey) {
-    throw new Error("API Key not found in environment variables");
-  }
-  return new GoogleGenAI({ apiKey });
+  // Guidelines: API key must be obtained exclusively from process.env.API_KEY and used directly.
+  return new GoogleGenAI({ apiKey: process.env.API_KEY });
 };
 
 const getModelConfig = (length: Length) => {
@@ -25,30 +22,35 @@ const getModelConfig = (length: Length) => {
 };
 
 const buildPrompt = (sources: Source[], instruction: string, options: RedactionOptions) => {
-  // Construimos el bloque de contexto con XML tags para que el modelo distinga fuentes de instrucciones
   const contextBlock = sources.map(s => `
   <document name="${s.name}">
     ${s.content}
   </document>
   `).join('\n');
 
+  const crossReferenceInstruction = options.includeCrossReferences 
+    ? `
+    - REFERENCIAS CRUZADAS: Analiza activamente el texto para encontrar conexiones. Cuando menciones un concepto explicado en otra sección, añade: (véase la sección: [Nombre exacto del encabezado]).
+    ` 
+    : '';
+
   return `
     Actúa como un experto redactor e investigador analítico de clase mundial.
     
-    TINES DOS PARTES DE INFORMACIÓN:
-    1. <library>: Una colección de documentos y fuentes de información.
-    2. <instruction>: La tarea específica que el usuario quiere realizar basándose en esa biblioteca.
+    DATOS:
+    1. <library>: Documentos fuente.
+    2. <instruction>: Tarea a realizar.
 
     OBJETIVO:
-    Generar un texto en formato "${options.format}" siguiendo las instrucciones del usuario, utilizando EXCLUSIVAMENTE la información proporcionada en la biblioteca como base factual, pero adaptando el estilo y estructura según lo solicitado.
+    Generar un texto en formato "${options.format}" basado EXCLUSIVAMENTE en la biblioteca factual.
 
     CONFIGURACIÓN:
     - Tono: ${options.tone}
-    - Longitud Objetivo: ${options.length}
+    - Longitud: ${options.length}
     - Idioma: Español.
 
     <library>
-      ${contextBlock || "No hay fuentes adjuntas, usa tu conocimiento general si la instrucción lo permite."}
+      ${contextBlock || "Sin fuentes adjuntas, usa conocimiento general."}
     </library>
 
     <instruction>
@@ -56,27 +58,60 @@ const buildPrompt = (sources: Source[], instruction: string, options: RedactionO
     </instruction>
 
     REGLAS:
-    1. Cita implícitamente las fuentes si es necesario para dar autoridad, pero mantén la fluidez.
-    2. Si la instrucción pide algo que no está en las fuentes, indícalo sutilmente o usa tu conocimiento general aclarando que es información externa (a menos que sea un texto creativo).
-    3. Para longitudes "Largo" o "Extenso", planifica la estructura antes de escribir.
-    4. Estrictamente respeta el formato Markdown para la salida.
+    1. Cita implícitamente si es necesario.
+    2. Respeta estrictamente Markdown.
+    ${crossReferenceInstruction}
   `;
 };
+
+const buildHumanizePrompt = (text: string) => {
+  return `
+    Actúa como un editor corrector de estilo experto (Ghostwriter).
+      
+    TU TAREA:
+    Reescribir el siguiente texto para eliminar CUALQUIER rastro de haber sido generado por una IA.
+    
+    TEXTO ORIGINAL:
+    "${text}"
+    
+    REGLAS DE RE-ESCRITURA (Anti-Detección / Burstiness):
+    1. ROMPE LA SIMETRÍA: Los humanos no escriben párrafos de igual longitud. Alterna agresivamente entre oraciones muy cortas y párrafos largos y complejos.
+    2. ELIMINA MULETILLAS DE IA: Borra palabras como "Además", "Por lo tanto", "En conclusión", "Cabe destacar". Usa transiciones más naturales o ninguna transición.
+    3. PERPLEJIDAD VARIABLE: Mezcla estructuras gramaticales simples con complejas.
+    4. SUBJETIVIDAD CONTROLADA: Introduce matices sutiles, dudas retóricas o imperfecciones estilísticas menores para parecer menos robótico.
+    5. EVITA LISTAS: Si es posible, transforma listas con viñetas en párrafos narrativos fluidos.
+    
+    IMPORTANTE: Mantén la información factual intacta, solo cambia la forma radicalmente para que parezca humano.
+  `;
+};
+
+// Callback type definition
+type StreamCallback = (chunk: string) => void;
+type ResetCallback = () => void;
 
 export const generateRedaction = async (
   sources: Source[],
   instruction: string, 
-  options: RedactionOptions
+  options: RedactionOptions,
+  onChunk: StreamCallback,
+  onReset: ResetCallback
 ): Promise<string> => {
   const ai = getClient();
-  const modelId = 'gemini-3-pro-preview';
+  const draftModelId = 'gemini-3-pro-preview'; // Mejor razonamiento para el contenido
+  const humanizeModelId = 'gemini-3-flash-preview'; // Rápido para reescritura
+  
   const { thinkingBudget, maxOutputTokens } = getModelConfig(options.length);
 
-  const prompt = buildPrompt(sources, instruction, options);
+  // --- PASO 1: Generación de Borrador (Factual) ---
+  // Si vamos a humanizar después, pedimos un tono profesional neutro primero para asegurar los datos
+  const draftOptions = options.humanizeMode ? { ...options, tone: Tone.PROFESSIONAL } : options;
+  const prompt = buildPrompt(sources, instruction, draftOptions);
+
+  let fullDraft = '';
 
   try {
-    const response = await ai.models.generateContent({
-      model: modelId,
+    const draftResponse = await ai.models.generateContentStream({
+      model: draftModelId,
       contents: prompt,
       config: {
         maxOutputTokens: maxOutputTokens,
@@ -85,7 +120,48 @@ export const generateRedaction = async (
       }
     });
 
-    return response.text || "No se pudo generar el texto. Inténtalo de nuevo.";
+    for await (const chunk of draftResponse) {
+      const c = chunk as GenerateContentResponse;
+      if (c.text) {
+        fullDraft += c.text;
+        // Solo enviamos al UI si NO vamos a humanizar después, 
+        // o podemos enviarlo para que el usuario vea el progreso del borrador
+        onChunk(c.text); 
+      }
+    }
+
+    // --- PASO 2: Humanización (Opcional) ---
+    if (options.humanizeMode && fullDraft) {
+      // Limpiamos el texto en la UI para empezar a escribir la versión humanizada
+      onReset();
+      onChunk("\n\n_Aplicando filtro de humanización y corrección de estilo..._\n\n");
+      
+      const humanizePrompt = buildHumanizePrompt(fullDraft);
+      
+      const humanizeResponse = await ai.models.generateContentStream({
+        model: humanizeModelId,
+        contents: humanizePrompt,
+        config: { 
+          temperature: 0.9 // Alta temperatura para creatividad y caos (burstiness)
+        }
+      });
+
+      let fullHumanized = '';
+      // Limpiamos el mensaje de estado
+      onReset(); 
+
+      for await (const chunk of humanizeResponse) {
+        const c = chunk as GenerateContentResponse;
+        if (c.text) {
+          fullHumanized += c.text;
+          onChunk(c.text);
+        }
+      }
+      return fullHumanized;
+    }
+
+    return fullDraft;
+
   } catch (error) {
     console.error("Error generating redaction:", error);
     throw error;
@@ -99,49 +175,28 @@ export const generateOptimizedPrompt = async (
 ): Promise<string> => {
   const ai = getClient();
   const modelId = 'gemini-3-pro-preview';
-
-  // Resumimos las fuentes para el meta-prompt (no enviamos todo el contenido si es gigante, solo metadata o primeros 1k chars para contexto del prompt engineer)
-  // Aunque Gemini 1.5/3 soporta mucho contexto, para el meta-prompt queremos que diseñe la estructura.
-  const sourcesSummary = sources.map(s => `- Archivo: ${s.name} (Contenido disponible en el prompt final)`).join('\n');
+  const sourcesSummary = sources.map(s => `- Archivo: ${s.name}`).join('\n');
+  const crossRefNote = options.includeCrossReferences ? "Nota: Incluye referencias cruzadas internas." : "";
 
   const metaPrompt = `
-    Actúa como un Ingeniero de Prompts Senior (Prompt Engineer).
-
-    TU TAREA:
-    Analizar la solicitud del usuario y las fuentes disponibles para crear el "Prompt Maestro" perfecto que se le enviaría a una IA para realizar el trabajo.
+    Actúa como Prompt Engineer. Crea un prompt maestro para esta tarea:
+    Fuentes: ${sourcesSummary}
+    Instrucción: "${instruction}"
+    Config: ${options.tone}, ${options.format}, Humanizar: ${options.humanizeMode}.
+    ${crossRefNote}
     
-    DATOS DEL USUARIO:
-    - Fuentes Disponibles: 
-      ${sourcesSummary}
-    - Instrucción del Usuario: "${instruction}"
-    - Configuración: Tono ${options.tone}, Formato ${options.format}, Longitud ${options.length}.
-
-    SALIDA ESPERADA:
-    Genera un bloque de código Markdown con un prompt altamente estructurado (usando técnicas como Chain of Thought, Few-Shot si aplica, y delimitadores XML).
-    
-    El prompt que generes debe tener esta estructura:
-    1. <role_definition>
-    2. <task_description>
-    3. <style_guidelines>
-    4. <input_data_placeholders> (Indica dónde irían los textos de los PDF)
-    5. <step_by_step_instructions>
-
-    No realices la redacción. SOLO ESCRIBE EL PROMPT OPTIMIZADO.
+    Salida: Markdown con estructura XML (<role>, <task>, etc).
   `;
 
   try {
     const response = await ai.models.generateContent({
       model: modelId,
       contents: metaPrompt,
-      config: {
-        thinkingConfig: { thinkingBudget: 2048 },
-        temperature: 0.8,
-      }
+      config: { thinkingConfig: { thinkingBudget: 2048 } }
     });
-
-    return response.text || "No se pudo generar el prompt.";
+    return response.text || "Error generando prompt.";
   } catch (error) {
-    console.error("Error generating optimized prompt:", error);
+    console.error(error);
     throw error;
   }
 };
